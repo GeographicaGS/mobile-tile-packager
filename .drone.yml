@@ -1,0 +1,60 @@
+
+kind: pipeline
+name: test
+
+steps:
+  - name: install_dependencies
+    image: node:lts
+    environment:
+      REDIS_HOST: redis-db
+    commands:
+      - npm install -g node-pre-gyp
+      - npm ci
+      - npm install
+      # - npm test
+
+services:
+  - name: redis-db
+    image: redis:alpine
+--- 
+kind: pipeline
+name: build
+depends_on:
+  - test
+steps:
+  - name: prepare_docker_tags
+    image: debian:stable-slim
+    commands:
+      - echo -n "${DRONE_COMMIT_SHA},${DRONE_COMMIT_BRANCH//\//__}" > .tags
+
+  - name: build-docker-deploy
+    image: plugins/docker
+    when:
+      branch:
+        - geographica-master
+      event:
+        - push
+    settings: &build_docker
+      repo: tempogeographica.azurecr.io/mobile-tile-packager
+      ## Enable to only build without push it
+      # dry_run: true
+      dockerfile: Dockerfile
+      username:
+        from_secret: azurecr_cred_username
+      password:
+        from_secret: azurecr_cred_password
+      registry: tempogeographica.azurecr.io
+      cache_from:
+        - "tempogeographica.azurecr.io/mobile-tile-packager:${DRONE_COMMIT_SHA}"
+        - "tempogeographica.azurecr.io/mobile-tile-packager:${DRONE_COMMIT_BEFORE}"
+        - tempogeographica.azurecr.io/mobile-tile-packager:dev
+
+  - name: build-docker-dev
+    image: plugins/docker
+    when:
+      event:
+        - push
+    settings:
+      <<: *build_docker
+      ## Enable to only build without push it
+      dry_run: true
